@@ -6,7 +6,6 @@ import androidx.activity.compose.setContent
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -18,13 +17,11 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.mutableStateListOf
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeJoin
@@ -36,14 +33,8 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.sp
 import tw.edu.pu.s1110054.touch0.ui.theme.Touch0Theme
 
-// 顏色常數
-val ColorRed = Color(0xFFFF0000)
-val ColorOrange = Color(0xFFFFA500)
-val ColorYellow = Color(0xFFFFFF00)
-val ColorGreen = Color(0xFF008000)
-val ColorBlue = Color(0xFF0000FF)
-val ColorIndigo = Color(0xFF4B0082)
-val ColorPurple = Color(0xFF800080)
+// 資料類，用於保存手指的路徑和顏色
+data class FingerPath(val path: Path, val color: Color)
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -53,7 +44,7 @@ class MainActivity : ComponentActivity() {
                 Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
                     Column(modifier = Modifier.padding(innerPadding)) {
                         Greeting(name = "Android")
-                        DrawCircle() // 確保這個繪製圓形的功能被呼叫
+                        DrawCircle()
                     }
                 }
             }
@@ -98,37 +89,57 @@ fun Greeting(name: String, modifier: Modifier = Modifier) {
 @OptIn(ExperimentalComposeUiApi::class)
 @Composable
 fun DrawCircle() {
-    // 記錄所有的觸摸點
-    val paths = remember { mutableStateListOf<Points>() }
-
-    // 設定顏色變數
-    var currentColor = remember { mutableStateOf<Color>(Color.Black) }
+    // 保存所有手指的路徑
+    val fingerPaths = remember { mutableStateListOf<FingerPath>() }
 
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .pointerInput(Unit) {
-                detectTapGestures { offset ->
-                    // 每次觸摸時，新增點
-                    paths.add(Points(offset.x, offset.y))
-                }
-            }
+            .detectMultiTouch(fingerPaths) // 使用自定義的多指觸控偵測
     ) {
         Canvas(modifier = Modifier.fillMaxSize()) {
-            val path = Path()
-            // 遍歷每一個點，繪製路徑
-            paths.forEachIndexed { index, point ->
-                if (index == 0) {
-                    path.moveTo(point.x, point.y)
-                } else {
-                    path.lineTo(point.x, point.y)
-                }
+            fingerPaths.forEach { fingerPath ->
+                drawPath(
+                    path = fingerPath.path,
+                    color = fingerPath.color,
+                    style = androidx.compose.ui.graphics.drawscope.Stroke(
+                        width = 5f,
+                        join = StrokeJoin.Round
+                    )
+                )
             }
-
-            // 設置顏色並繪製路徑
-            drawPath(path, color = currentColor.value, style = androidx.compose.ui.graphics.drawscope.Stroke(width = 5f, join = StrokeJoin.Round))
         }
     }
 }
 
-data class Points(val x: Float, val y: Float)
+// 擴展函數：偵測多指觸控
+@OptIn(ExperimentalComposeUiApi::class)
+fun Modifier.detectMultiTouch(fingerPaths: MutableList<FingerPath>): Modifier {
+    return this.pointerInput(Unit) {
+        awaitPointerEventScope {
+            val colors = listOf(Color.Red, Color.Green, Color.Blue, Color.Yellow, Color.Magenta)
+            while (true) {
+                val event = awaitPointerEvent()
+                event.changes.forEach { pointerInputChange ->
+                    val position = pointerInputChange.position
+                    val pointerId = pointerInputChange.id.hashCode()
+
+                    if (pointerInputChange.pressed) {
+                        // 如果是新手指，初始化路徑和顏色
+                        if (pointerId >= fingerPaths.size) {
+                            fingerPaths.add(
+                                FingerPath(
+                                    Path().apply { moveTo(position.x, position.y) },
+                                    colors[pointerId % colors.size]
+                                )
+                            )
+                        } else {
+                            // 否則延續該路徑
+                            fingerPaths[pointerId].path.lineTo(position.x, position.y)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
